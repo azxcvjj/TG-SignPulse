@@ -1,9 +1,6 @@
-version: '3.8'
-
 services:
   app:
-    build: .
-    image: tg-signpulse:latest
+    image: ghcr.io/akasls/tg-signpulse:latest
     container_name: tg-signpulse
     ports:
       - "8080:8080"
@@ -17,6 +14,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+      - /app/__pycache__
     security_opt:
       - no-new-privileges:true
     cap_drop:

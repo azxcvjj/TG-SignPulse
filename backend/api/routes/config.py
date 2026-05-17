@@ -365,6 +365,7 @@ class GlobalSettingsRequest(BaseModel):
     log_retention_days: int = 7
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
+    tg_global_concurrency: Optional[int] = None
     telegram_bot_notify_enabled: bool = False
     telegram_bot_login_notify_enabled: bool = False
     telegram_bot_task_failure_enabled: bool = True
@@ -378,6 +379,7 @@ class GlobalSettingsResponse(BaseModel):
     log_retention_days: int = 7
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
+    tg_global_concurrency: Optional[int] = 1
     telegram_bot_notify_enabled: bool = False
     telegram_bot_login_notify_enabled: bool = False
     telegram_bot_task_failure_enabled: bool = True
@@ -407,6 +409,7 @@ async def save_global_settings(
             "sign_interval": request.sign_interval,
             "log_retention_days": request.log_retention_days,
             "global_proxy": request.global_proxy,
+            "tg_global_concurrency": request.tg_global_concurrency,
             "telegram_bot_notify_enabled": request.telegram_bot_notify_enabled,
             "telegram_bot_login_notify_enabled": request.telegram_bot_login_notify_enabled,
             "telegram_bot_task_failure_enabled": request.telegram_bot_task_failure_enabled,
@@ -414,7 +417,10 @@ async def save_global_settings(
             "telegram_bot_chat_id": request.telegram_bot_chat_id,
             "telegram_bot_message_thread_id": request.telegram_bot_message_thread_id,
         }
-        fields_set = getattr(request, "model_fields_set", getattr(request, "__fields_set__", set()))
+        if hasattr(request, "model_fields_set"):
+            fields_set = request.model_fields_set
+        else:
+            fields_set = request.__fields_set__
         if "data_dir" in fields_set:
             settings["data_dir"] = request.data_dir
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
@@ -9,6 +11,15 @@ from backend.models.task import Task
 from backend.services.tasks import run_task_once
 
 scheduler: AsyncIOScheduler | None = None
+
+
+def _parse_clock_time(value: str):
+    for fmt in ("%H:%M:%S", "%H:%M"):
+        try:
+            return datetime.strptime(value, fmt).time()
+        except ValueError:
+            continue
+    raise ValueError(f"Invalid clock time: {value}")
 
 
 def create_cron_trigger(cron_str: str) -> CronTrigger:
@@ -74,22 +85,21 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
             if range_start_str and range_end_str:
                 try:
                     # 解析时间
-                    fmt = "%H:%M"
-                    start_time = datetime.strptime(range_start_str, fmt).time()
-                    end_time = datetime.strptime(range_end_str, fmt).time()
+                    start_time = _parse_clock_time(range_start_str)
+                    end_time = _parse_clock_time(range_end_str)
 
                     # 转换为当前日期的 datetime
                     now = datetime.now()
                     start_dt = now.replace(
                         hour=start_time.hour,
                         minute=start_time.minute,
-                        second=0,
+                        second=start_time.second,
                         microsecond=0,
                     )
                     end_dt = now.replace(
                         hour=end_time.hour,
                         minute=end_time.minute,
-                        second=0,
+                        second=end_time.second,
                         microsecond=0,
                     )
 
@@ -138,7 +148,11 @@ async def _job_maintenance() -> None:
         print(f"Maintenance: 已清理 {count} 条数据库任务日志")
 
         # 清理签到任务日志
-        get_sign_task_service()._cleanup_old_logs()
+        sign_service = get_sign_task_service()
+        sign_service._cleanup_old_logs()
+
+        # 清理内存中的过期状态
+        sign_service._prune_stale_entries()
     finally:
         db.close()
 
@@ -185,7 +199,9 @@ async def sync_jobs() -> None:
         # 2. 同步签到任务 (SignTask)
         # 使用缓存的任务列表，减少 I/O
         sign_task_service = get_sign_task_service()
-        sign_tasks = sign_task_service.list_tasks(force_refresh=False)
+        # Expand wildcard tasks for newly added accounts
+        sign_task_service._expand_wildcard_tasks()
+        sign_tasks = sign_task_service.list_tasks(force_refresh=True)
         for st in sign_tasks:
             account_name = str(st.get("account_name") or "").strip()
             task_name = str(st.get("name") or "").strip()
@@ -198,6 +214,11 @@ async def sync_jobs() -> None:
 
             # SignTask 目前默认都是启用的，或者根据 st['enabled']
             if not st.get("enabled", True):
+                if job_id in existing_ids:
+                    scheduler.remove_job(job_id)
+                continue
+
+            if st.get("execution_mode") == "listen":
                 if job_id in existing_ids:
                     scheduler.remove_job(job_id)
                 continue
